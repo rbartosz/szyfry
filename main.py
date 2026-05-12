@@ -1,161 +1,143 @@
 import os
 import math
+import csv
 from collections import Counter
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 
+# ==========================================
+# 1. PRZYGOTOWANIE FOLDERU WYNIKOWEGO
+# ==========================================
+FOLDER_WYNIKOWY = "pliki"
+os.makedirs(FOLDER_WYNIKOWY, exist_ok=True)
+
 
 # ==========================================
-# 1. FUNKCJA MATEMATYCZNA: ENTROPIA SHANNONA
+# 2. FUNKCJE POMOCNICZE
 # ==========================================
 
 def oblicz_entropie(tekst):
-    """Oblicza entropię Shannona dla podanego ciągu znaków."""
-    if not tekst:
-        return 0.0
-
-    czestotliwosc = Counter(tekst)  # Zlicza wystąpienia każdego znaku
+    if not tekst: return 0.0
+    czestotliwosc = Counter(tekst)
     dlugosc = len(tekst)
     entropia = 0.0
-
     for ilosc in czestotliwosc.values():
         prawdopodobienstwo = ilosc / dlugosc
-        # Wzór Shannona: sumujemy -p * log2(p)
         entropia -= prawdopodobienstwo * math.log2(prawdopodobienstwo)
-
     return entropia
 
 
+def format_excel(liczba):
+    """Formatowanie dla polskiego Excela (przecinek zamiast kropki)."""
+    return str(round(liczba, 4)).replace('.', ',')
+
+
 # ==========================================
-# 2. GENEROWANIE KLUCZY I USTAWIEŃ
+# 3. GENEROWANIE KLUCZY I SZYFROWANIE
 # ==========================================
 
-print("Generowanie kluczy kryptograficznych...")
-
+print("Generowanie kluczy...")
 rsa_key = RSA.generate(2048)
 rsa_public_key = rsa_key.publickey()
 rsa_cipher = PKCS1_OAEP.new(rsa_public_key)
-
 aes_key = get_random_bytes(16)
 cezar_przesuniecie = 3
-trans_klucz = [3, 0, 4, 1, 5, 2, 8, 6, 9, 7]
 
-# ------------------------------------------
-# ZAPIS KLUCZY DO PLIKU
-# ------------------------------------------
-print("Zapisywanie kluczy do pliku klucze.txt...")
-with open("klucze.txt", "w", encoding="utf-8") as plik_kluczy:
-    plik_kluczy.write("=== KLUCZE KRYPTOGRAFICZNE ===\n\n")
+# Zmieniona nazwa zmiennej na przestawieniowy_klucz
+przestawieniowy_klucz = [3, 0, 4, 1, 5, 2, 8, 6, 9, 7]
 
-    plik_kluczy.write("1. Szyfr Cezara:\n")
-    plik_kluczy.write(f"Przesuniecie: {cezar_przesuniecie}\n\n")
-
-    plik_kluczy.write("2. Szyfr Przestawieniowy (Permutacja):\n")
-    plik_kluczy.write(f"Kolejnosc (Klucz): {trans_klucz}\n\n")
-
-    plik_kluczy.write("3. Szyfr AES (Tryb EAX):\n")
-    plik_kluczy.write(f"Klucz (HEX): {aes_key.hex()}\n\n")
-
-    plik_kluczy.write("4. Szyfr RSA:\n")
-    plik_kluczy.write("Klucz Prywatny (PEM):\n")
-    plik_kluczy.write(rsa_key.export_key().decode('utf-8') + "\n\n")
-    plik_kluczy.write("Klucz Publiczny (PEM):\n")
-    plik_kluczy.write(rsa_public_key.export_key().decode('utf-8') + "\n")
+# Zapis kluczy do folderu 'pliki'
+path_klucze = os.path.join(FOLDER_WYNIKOWY, "klucze.txt")
+with open(path_klucze, "w", encoding="utf-8") as pk:
+    pk.write(f"Cezar: {cezar_przesuniecie}\nPermutacja: {przestawieniowy_klucz}\n")
+    pk.write(f"AES (HEX): {aes_key.hex()}\n")
+    pk.write(f"RSA Public:\n{rsa_public_key.export_key().decode()}\n")
 
 
-# ==========================================
-# 3. FUNKCJE SZYFRUJĄCE (z poprzedniego kroku)
-# ==========================================
-
-def szyfruj_cezar(tekst, przesuniecie):
-    wynik = ""
-    for znak in tekst:
-        if znak.isalpha():
-            ascii_start = 65 if znak.isupper() else 97
-            nowy_znak = chr((ord(znak) - ascii_start + przesuniecie) % 26 + ascii_start)
-            wynik += nowy_znak
+# Funkcje szyfrujące
+def szyfruj_cezar(t, p):
+    w = ""
+    for z in t:
+        if z.isalpha():
+            s = 65 if z.isupper() else 97
+            w += chr((ord(z) - s + p) % 26 + s)
         else:
-            wynik += znak
-    return wynik
+            w += z
+    return w
 
 
-def szyfruj_przestawieniowy(tekst, klucz):
-    rozmiar_bloku = 10
-    wynik = ""
-    reszta = len(tekst) % rozmiar_bloku
-    if reszta != 0:
-        tekst += " " * (rozmiar_bloku - reszta)
-    for i in range(0, len(tekst), rozmiar_bloku):
-        blok = tekst[i: i + rozmiar_bloku]
-        wynik += "".join([blok[j] for j in klucz])
-    return wynik
+def szyfruj_przestawieniowy(t, k):
+    reszta = len(t) % 10
+    if reszta != 0: t += " " * (10 - reszta)
+    w = ""
+    for i in range(0, len(t), 10):
+        b = t[i:i + 10]
+        w += "".join([b[j] for j in k])
+    return w
 
 
-def szyfruj_aes(tekst, klucz):
-    szyfrator = AES.new(klucz, AES.MODE_EAX)
-    nonce = szyfrator.nonce
-    ciphertext, tag = szyfrator.encrypt_and_digest(tekst.encode('utf-8'))
-    return f"{nonce.hex()}:{ciphertext.hex()}"
+def szyfruj_aes(t, k):
+    s = AES.new(k, AES.MODE_EAX)
+    c, tag = s.encrypt_and_digest(t.encode('utf-8'))
+    return f"{s.nonce.hex()}:{c.hex()}"
 
 
-def szyfruj_rsa(tekst, szyfrator):
-    dane_w_bajtach = tekst.encode('utf-8')
-    zaszyfrowane_bajty = szyfrator.encrypt(dane_w_bajtach)
-    return zaszyfrowane_bajty.hex()
+def szyfruj_rsa(t, s):
+    return s.encrypt(t.encode('utf-8')[:190]).hex()
 
 
 # ==========================================
-# 4. PĘTLA GŁÓWNA - PRZETWARZANIE I ENTROPIA
+# 4. PRZETWARZANIE 10 PLIKÓW
 # ==========================================
 
-print("Rozpoczynam przetwarzanie plików i badanie entropii...")
+print(f"Przetwarzanie... Wyniki trafia do folderu: {FOLDER_WYNIKOWY}")
 
-# Otwieramy plik do zapisywania raportu z entropii
-with open("raport_entropii.txt", "w", encoding="utf-8") as raport:
-    raport.write("=== RAPORT ENTROPII SHANNONA ===\n")
+path_csv = os.path.join(FOLDER_WYNIKOWY, "zestawienie_entropii.csv")
+with open(path_csv, "w", newline="", encoding="utf-8") as f_csv:
+    writer = csv.writer(f_csv, delimiter=';')
+    # Zmieniony nagłówek w Excelu
+    writer.writerow(["Plik", "Jawny", "Cezar", "Przestawieniowy", "AES", "RSA"])
 
     for i in range(1, 11):
-        nazwa_pliku = f"plik{i}.txt"
+        nazwa_wejscia = f"plik{i}.txt"
 
-        # Generowanie pliku testowego, jeśli nie istnieje
-        if not os.path.exists(nazwa_pliku):
-            with open(nazwa_pliku, 'w', encoding='utf-8') as f:
-                f.write(
-                    f"To jest przykladowy tekst w pliku numer {i} do zaszyfrowania. Posiada rozne znaki, aby entropia miala co liczyc!")
-
-        with open(nazwa_pliku, 'r', encoding='utf-8') as f:
-            tresc = f.read()
+        try:
+            with open(nazwa_wejscia, 'r', encoding='utf-8') as f:
+                tresc = f.read()
+        except FileNotFoundError:
+            print(f"Brak pliku {nazwa_wejscia}")
+            continue
 
         # Szyfrowanie
-        cezar = szyfruj_cezar(tresc, cezar_przesuniecie)
-        trans = szyfruj_przestawieniowy(tresc, trans_klucz)
-        aes = szyfruj_aes(tresc, aes_key)
-        rsa = szyfruj_rsa(tresc[:190], rsa_cipher)  # Ograniczenie dla RSA
+        c_cezar = szyfruj_cezar(tresc, cezar_przesuniecie)
+        # Zmieniona nazwa zmiennej wynikowej
+        c_przestawieniowy = szyfruj_przestawieniowy(tresc, przestawieniowy_klucz)
+        c_aes = szyfruj_aes(tresc, aes_key)
+        c_rsa = szyfruj_rsa(tresc, rsa_cipher)
 
-        # Zapis szyfrogramów do plików
-        with open(f"cezar{i}.txt", 'w', encoding='utf-8') as f:
-            f.write(cezar)
-        with open(f"trans{i}.txt", 'w', encoding='utf-8') as f:
-            f.write(trans)
-        with open(f"aes{i}.txt", 'w', encoding='utf-8') as f:
-            f.write(aes)
-        with open(f"rsa{i}.txt", 'w', encoding='utf-8') as f:
-            f.write(rsa)
+        # Zapisywanie 5 plików dla każdego zestawu do folderu 'pliki'
+        with open(os.path.join(FOLDER_WYNIKOWY, f"plik{i}.txt"), 'w', encoding='utf-8') as f:
+            f.write(tresc)
+        with open(os.path.join(FOLDER_WYNIKOWY, f"cezar{i}.txt"), 'w', encoding='utf-8') as f:
+            f.write(c_cezar)
+        # Zmieniona nazwa tworzonego pliku tekstowego na przestawieniowy{i}.txt
+        with open(os.path.join(FOLDER_WYNIKOWY, f"przestawieniowy{i}.txt"), 'w', encoding='utf-8') as f:
+            f.write(c_przestawieniowy)
+        with open(os.path.join(FOLDER_WYNIKOWY, f"aes{i}.txt"), 'w', encoding='utf-8') as f:
+            f.write(c_aes)
+        with open(os.path.join(FOLDER_WYNIKOWY, f"rsa{i}.txt"), 'w', encoding='utf-8') as f:
+            f.write(c_rsa)
 
-        # Obliczanie entropii
-        ent_jawny = oblicz_entropie(tresc)
-        ent_cezar = oblicz_entropie(cezar)
-        ent_trans = oblicz_entropie(trans)
-        ent_aes = oblicz_entropie(aes)
-        ent_rsa = oblicz_entropie(rsa)
+        # Entropia
+        writer.writerow([
+            f"Zestaw {i}",
+            format_excel(oblicz_entropie(tresc)),
+            format_excel(oblicz_entropie(c_cezar)),
+            format_excel(oblicz_entropie(c_przestawieniowy)),  # Podmiana zmiennej
+            format_excel(oblicz_entropie(c_aes)),
+            format_excel(oblicz_entropie(c_rsa))
+        ])
+        print(f"Gotowe: Zestaw {i}")
 
-        # Zapis wyników do raportu
-        raport.write(f"\n--- Plik: {nazwa_pliku} ---\n")
-        raport.write(f"Tekst jawny:      {ent_jawny:.4f} bitów/znak\n")
-        raport.write(f"Szyfr Cezara:     {ent_cezar:.4f} bitów/znak\n")
-        raport.write(f"Przestawieniowy:  {ent_trans:.4f} bitów/znak\n")
-        raport.write(f"AES (format hex): {ent_aes:.4f} bitów/znak\n")
-        raport.write(f"RSA (format hex): {ent_rsa:.4f} bitów/znak\n")
-
-print("Sukces! Wygenerowano pliki 'klucze.txt' oraz 'raport_entropii.txt'.")
+print("\nSukces! Folder 'pliki' zawiera teraz komplet 50 plików i raport.")
